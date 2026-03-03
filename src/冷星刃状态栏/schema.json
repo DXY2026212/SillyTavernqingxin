@@ -1,0 +1,310 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "冷星刃": {
+      "type": "object",
+      "properties": {
+        "异能信息": {
+          "type": "object",
+          "properties": {
+            "异能种类": {
+              "type": "string"
+            },
+            "异能名称": {
+              "type": "string"
+            },
+            "异能等级": {
+              "type": "string"
+            },
+            "异能潜力": {
+              "type": "string"
+            },
+            "能量值": {
+              "type": "number"
+            },
+            "能量上限": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "异能种类",
+            "异能名称",
+            "异能等级",
+            "异能潜力",
+            "能量值",
+            "能量上限"
+          ]
+        },
+        "呼吸法信息": {
+          "type": "object",
+          "properties": {
+            "呼吸法名称": {
+              "type": "string"
+            },
+            "呼吸法等级": {
+              "type": "string"
+            },
+            "呼吸法流派": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "呼吸法名称",
+            "呼吸法等级",
+            "呼吸法流派"
+          ]
+        },
+        "武道信息": {
+          "type": "object",
+          "properties": {
+            "武道境界": {
+              "type": "string"
+            },
+            "武道名称": {
+              "type": "string"
+            },
+            "修炼进度": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "武道境界",
+            "武道名称",
+            "修炼进度"
+          ]
+        },
+        "状态信息": {
+          "type": "object",
+          "properties": {
+            "好感度": {
+              "type": "number"
+            },
+            "信任度": {
+              "type": "number"
+            },
+            "当前心情": {
+              "type": "string"
+            },
+            "当前状态": {
+              "type": "string"
+            },
+            "体力值": {
+              "type": "number"
+            },
+            "精神值": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "好感度",
+            "信任度",
+            "当前心情",
+            "当前状态",
+            "体力值",
+            "精神值"
+          ]
+        },
+        "装备": {
+          "type": "object",
+          "properties": {
+            "上装": {
+              "type": "string"
+            },
+            "下装": {
+              "type": "string"
+            },
+            "内衣": {
+              "type": "string"
+            },
+            "鞋子": {
+              "type": "string"
+            },
+            "饰品": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "上装",
+            "下装",
+            "内衣",
+            "鞋子",
+            "饰品"
+          ]
+        },
+        "近期目标": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "物品栏": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "异能信息",
+        "呼吸法信息",
+        "武道信息",
+        "状态信息",
+        "装备",
+        "近期目标",
+        "物品栏"
+      ]
+    },
+    "主角": {
+      "type": "object",
+      "properties": {
+        "异能信息": {
+          "type": "object",
+          "properties": {
+            "异能种类": {
+              "type": "string"
+            },
+            "异能名称": {
+              "type": "string"
+            },
+            "异能等级": {
+              "type": "string"
+            },
+            "能量值": {
+              "type": "number"
+            },
+            "能量上限": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "异能种类",
+            "异能名称",
+            "异能等级",
+            "能量值",
+            "能量上限"
+          ]
+        },
+        "呼吸法信息": {
+          "type": "object",
+          "properties": {
+            "呼吸法名称": {
+              "type": "string"
+            },
+            "呼吸法等级": {
+              "type": "string"
+            },
+            "呼吸法流派": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "呼吸法名称",
+            "呼吸法等级",
+            "呼吸法流派"
+          ]
+        },
+        "武道信息": {
+          "type": "object",
+          "properties": {
+            "武道境界": {
+              "type": "string"
+            },
+            "武道名称": {
+              "type": "string"
+            },
+            "修炼进度": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "武道境界",
+            "武道名称",
+            "修炼进度"
+          ]
+        },
+        "状态信息": {
+          "type": "object",
+          "properties": {
+            "好感度": {
+              "type": "number"
+            },
+            "信任度": {
+              "type": "number"
+            },
+            "当前心情": {
+              "type": "string"
+            },
+            "当前状态": {
+              "type": "string"
+            },
+            "体力值": {
+              "type": "number"
+            },
+            "精神值": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "好感度",
+            "信任度",
+            "当前心情",
+            "当前状态",
+            "体力值",
+            "精神值"
+          ]
+        },
+        "物品栏": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "异能信息",
+        "呼吸法信息",
+        "武道信息",
+        "状态信息",
+        "物品栏"
+      ]
+    },
+    "世界": {
+      "type": "object",
+      "properties": {
+        "当前时间": {
+          "type": "string"
+        },
+        "当前地点": {
+          "type": "string"
+        },
+        "当前天气": {
+          "type": "string"
+        },
+        "魔兽入侵阶段": {
+          "type": "string"
+        },
+        "入侵倒计时": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "当前时间",
+        "当前地点",
+        "当前天气",
+        "魔兽入侵阶段",
+        "入侵倒计时"
+      ]
+    }
+  },
+  "required": [
+    "冷星刃",
+    "主角",
+    "世界"
+  ]
+}
