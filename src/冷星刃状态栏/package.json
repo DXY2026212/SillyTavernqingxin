@@ -1,0 +1,10 @@
+{
+  "name": "leng-xingren-status-bar",
+  "version": "1.0.0",
+  "description": "冷星刃状态栏",
+  "main": "index.ts",
+  "scripts": {
+    "build": "webpack --mode production"
+  },
+  "dependencies": {}
+}
