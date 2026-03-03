@@ -207,3 +207,10 @@
         类型: 脚本
         内容: |-
           import 'https://testingcf.jsdelivr.net/gh/StageDog/tavern_helper_template/dist/冷星刃/脚本/变量结构/index.js';
+
+      - 名称: 状态栏
+        id: 9a9b7569-01ac-451e-90ed-46a85949b693
+        启用: true
+        类型: 脚本
+        内容: |-
+          import 'https://testingcf.jsdelivr.net/gh/StageDog/tavern_helper_template/dist/冷星刃/界面/状态栏/index.ts';
