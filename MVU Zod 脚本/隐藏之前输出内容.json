@@ -1,0 +1,17 @@
+{
+    "id": "8c280065-e0be-45ec-8bc6-78b398e87676",
+    "scriptName": "隐藏之前输出内容",
+    "findRegex": "<code>([\\s\\S]*?)</code>",
+    "replaceString": " ",
+    "trimStrings": [],
+    "placement": [
+        1
+    ],
+    "disabled": false,
+    "markdownOnly": false,
+    "promptOnly": true,
+    "runOnEdit": true,
+    "substituteRegex": 0,
+    "minDepth": null,
+    "maxDepth": null
+}

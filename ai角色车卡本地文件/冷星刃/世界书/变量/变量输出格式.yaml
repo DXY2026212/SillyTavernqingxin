@@ -1,0 +1,54 @@
+---
+变量输出格式:
+  rule:
+    - you must output the update analysis and the actual update commands in the end of the next reply
+    - the update commands must strictly follow the **JSON Patch (RFC 6902)** standard, but can only use the following operations: `replace` (replace the value of existing paths), `add` (only used to insert new items into an object or array), `remove`; that is, the output must be a valid JSON array containing operation objects
+  format: |-
+    <UpdateVariable>
+    <Analysis>$(IN ENGLISH, no more than 150 words)
+    - ${Time Analysis: How much time passed in this turn? (e.g., +10 mins, +3 days)}
+    - ${World Status: Check if location, weather, or invasion stage changed based on narrative.}
+    - ${Leng Xingren Status: Analyze Leng Xingren's ability, energy, cultivation progress, and mental state.}
+      - **Affection**: If <user> helped or showed understanding -> +1~+5. If <user> hurt or interfered -> -1~-5.
+      - **Trust**: If shared combat experience -> +5~+15. If kept promises -> +5~+10. If betrayed -> -20~-50.
+      - **Ability Growth**: If energy replenished or cultivation progressed -> update energy value and potential breakthrough.
+      - **Mental State**: Update 'Current Mood' and 'Current State' based on interactions and events.
+    - ${Protagonist Status: If protagonist has awakened ability, track their growth similarly.}
+    - ${Items & Goals**: Add new items, update quantities, or remove completed goals from the list.
+    </Analysis>
+    <JSONPatch>
+    [
+      // World Examples
+      { "op": "replace", "path": "/世界/当前时间", "value": "2075-07-17 08:30" },
+      { "op": "replace", "path": "/世界/当前地点", "value": "夜之城 沃森区 异能大学" },
+      { "op": "replace", "path": "/世界/当前天气", "value": "晴朗" },
+    
+      // Leng Xingren: Ability & Cultivation
+      { "op": "replace", "path": "/冷星刃/异能信息/能量值", "value": 25 },
+      { "op": "replace", "path": "/冷星刃/呼吸法信息/呼吸法等级", "value": "E" },
+      { "op": "replace", "path": "/冷星刃/武道信息/修炼进度", "value": 15 },
+    
+      // Leng Xingren: Status
+      { "op": "replace", "path": "/冷星刃/状态信息/好感度", "value": 5 },
+      { "op": "replace", "path": "/冷星刃/状态信息/信任度", "value": 10 },
+      { "op": "replace", "path": "/冷星刃/状态信息/当前心情", "value": "期待" },
+      { "op": "replace", "path": "/冷星刃/状态信息/体力值", "value": 85 },
+      { "op": "replace", "path": "/冷星刃/状态信息/精神值", "value": 90 },
+    
+      // Leng Xingren: Equipment & Items
+      { "op": "replace", "path": "/冷星刃/装备/上装", "value": "异能大学校服外套" },
+      { "op": "add", "path": "/冷星刃/物品栏/能量补充剂中瓶", "value": 2 },
+      { "op": "remove", "path": "/冷星刃/物品栏/能量补充剂小瓶" },
+    
+      // Leng Xingren: Goals
+      { "op": "remove", "path": "/冷星刃/近期目标/觉醒异能" },
+      { "op": "add", "path": "/冷星刃/近期目标/修炼空间异能", "value": "在异能大学学习如何使用星刃空间" },
+    
+      // Protagonist Examples (if applicable)
+      { "op": "replace", "path": "/主角/异能信息/异能种类", "value": "元素类" },
+      { "op": "replace", "path": "/主角/异能信息/异能名称", "value": "烈焰" },
+      { "op": "replace", "path": "/主角/异能信息/异能等级", "value": "F" },
+      { "op": "add", "path": "/主角/物品栏/基础火元素呼吸法秘籍", "value": 1 }
+    ]
+    </JSONPatch>
+    </UpdateVariable>

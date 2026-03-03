@@ -1,0 +1,1197 @@
+# MVU变量系统简明设计指南
+[/模块1]
+//变量脚本结构设计和初始化条目
+核心概念:
+  定义: MVU系统的基础层，由“结构定义(Schema)”和“初始数据(Init)”两部分组成
+  目标: 实现类型安全、运行时验证、增量更新和幂等操作
+
+模块1_0:
+  名称: 变量结构设计 (Schema)
+  文件格式: JavaScript (.js)
+  核心库:
+    Zod: 默认可用 (变量名 z)，用于定义类型
+    Lodash: 默认可用 (变量名 _)，用于数据处理
+    禁止行为: 不要重复 import z 或 _
+  
+  关键语法规范:
+    基础类型:
+      数字:
+        推荐: z.coerce.number() (自动处理字符串输入)
+        禁止: z.number() (除非严格确认输入类型)
+      字符串: z.string()
+      布尔值: z.boolean()
+    
+    对象结构:
+      推荐: z.record(z.string(), z.object({...})) (使用键值对，优于数组)
+      处理删除: .prefault({}) (允许被 patch 清除并自动恢复为空对象)
+      禁止: .passthrough() (Zod 4.x 不支持或不稳定)
+
+    动态与修正:
+      容错原则: 优先修正而非拒绝 (例如限制数值范围)
+      写法: .transform(v => _.clamp(v, 0, 100))
+      动态默认值: 
+        写法: .prefault(() => Date.now())
+        用途: 时间戳、UUID、新对象实例 (避免引用共享)
+      
+    幂等性原则:
+      定义: Schema.parse(Schema.parse(data)) === Schema.parse(data)
+      要求: 转换逻辑(transform)必须稳定，输出可作为输入
+
+  代码模板结构:
+    引用: import { registerMvuSchema } from '.../mvu_zod.js';
+    定义: |
+      export const Schema = z.object({
+        // 变量定义
+        好感度: z.coerce.number().transform(v => _.clamp(v, -100, 100)),
+        物品栏: z.record(z.string(), z.any()).prefault({})
+      });
+    注册: $(() => { registerMvuSchema(Schema); })
+  完整脚本示例:
+<完整脚本示例>
+import { registerMvuSchema } from 'https://testingcf.jsdelivr.net/gh/StageDog/tavern_resource/dist/util/mvu_zod.js';
+
+/**
+ * 辅助函数：限制容器大小
+ * 保持键值对数量不超过 limit，用于储物袋、法器等
+ * 
+ * 【特别说明】: 
+ * schema.optional() 允许 JSON Patch 执行 "remove" 操作 (在校验逻辑中等同于设置为 undefined)，
+ * 配合 omitBy 清理数据，完美解决了 "Cannot remove required key" 报错。
+ */
+const limitRecord = (schema, limit) => {
+  return z.record(z.string(), schema.optional())
+    .transform(obj => {
+      return _(obj)
+        .omitBy(_.isNil)
+        .entries()
+        .take(limit)
+        .fromPairs()
+        .value();
+    });
+};
+
+/**
+ * 辅助函数：状态自动计算
+ * 根据数值自动附加 Debuff 描述到 "当前状态" 字段
+ */
+const appendDebuff = (char) => {
+  let statusList = [];
+  
+  // --- 健康状态判定 ---
+  if ((char.健康 !== undefined && char.健康 < 20) || (char.健康值 !== undefined && char.健康值 < 20)) {
+    statusList.push("【重伤】行动力大幅受损，气息奄奄，难以调动法力");
+  } else if ((char.健康 !== undefined && char.健康 < 60) || (char.健康值 !== undefined && char.健康值 < 60)) {
+    statusList.push("【轻伤】气息略显紊乱");
+  }
+
+  // --- 心魔状态判定 ---
+  const xinmo = char.心魔;
+  if (xinmo > 80) {
+    statusList.push("【魔障】陷入深度执念，神志癫狂，眼前出现幻觉");
+  } else if (xinmo > 50) {
+    statusList.push("【心乱】杂念丛生，容易情绪失控");
+  }
+
+  // 将计算出的状态赋值给字段
+  char.当前状态 = statusList.length > 0 ? statusList.join(" | ") : "状态极佳";
+  return char;
+};
+
+// --- NPC Schema 生成器 (复用于所有女角色) ---
+function getNpcSchema() {
+  return z.object({
+    身份: z.string(),
+    修为: z.string().describe("该角色的修仙境界，如筑基中期"), // 【修正】新增修为字段
+    内心想法: z.string(),
+    心情: z.string(),
+    
+    // 目标：限制为 5 个 (支持 remove 操作)
+    近期目标: limitRecord(z.string(), 5).prefault({}),
+
+    // 数值系统
+    好感度: z.coerce.number()
+      .transform(v => _.clamp(v, -100, 200))
+      .describe("范围-100~200，单次变化建议范围 -30~+5"),
+      
+    健康值: z.coerce.number()
+      .transform(v => _.clamp(v, 0, 100))
+      .describe("0~100，低于20触发重伤Debuff"),
+
+    心魔: z.coerce.number()
+      .transform(v => _.clamp(v, 0, 100))
+      .describe("0~100，高于50/80触发魔障Debuff"),
+    
+    // 自动计算字段
+    当前状态: z.string().prefault("正常"),
+
+    // 物品与装备 (带数量限制)
+    储物袋: limitRecord(z.any(), 20).prefault({}),
+    功法: limitRecord(z.any(), 15).prefault({}),
+    法器: limitRecord(z.any(), 10).prefault({}),
+    
+    服装: z.object({
+      上衣: z.string(),
+      下衣: z.string(),
+      内衣裤: z.string(),
+      鞋袜: z.string(),
+      配饰: z.string()
+    }).prefault({})
+  }).transform(appendDebuff);
+}
+
+// --- 核心 Schema 定义 ---
+export const Schema = z.object({
+  
+  // 1. 世界环境
+  世界: z.object({
+    当前时间: z.string(),
+    当前天气: z.string(),
+    天南局势: z.string().prefault("平静")
+  }),
+
+  // 2. 玩家 (User) 结构
+  user: z.object({
+    姓名: z.string().prefault("韩立"), 
+    修为: z.string(),
+    
+    健康: z.coerce.number()
+      .transform(v => _.clamp(v, 0, 100)),
+      
+    心魔: z.coerce.number()
+      .transform(v => _.clamp(v, 0, 100)),
+
+    当前状态: z.string().prefault("正常").describe("自动推导"),
+
+    储物袋: limitRecord(z.any(), 20).prefault({}), 
+    功法: limitRecord(z.any(), 15).prefault({}),   
+    法器: limitRecord(z.any(), 10).prefault({})    
+  }).transform(appendDebuff),
+
+  // 3. 角色列表
+  慕沛灵: getNpcSchema(),
+  宋玉: getNpcSchema(),
+  梅凝: getNpcSchema(),
+  紫灵: getNpcSchema(),
+  柳玉: getNpcSchema()
+});
+
+$(() => {
+  registerMvuSchema(Schema);
+})
+</完整脚本示例>
+
+模块1_1:
+  名称: 变量初始化 (Init Data)
+  文件格式: YAML (.yaml)
+  依赖关系: 必须严格符合 模块1_0 定义的 Schema 结构
+  
+  编写规则:
+    纯净性: 禁止任何注释 (无 #)
+    类型匹配: 
+      数字: 直接写 (例如 0, 1.5)
+      布尔: true / false
+      空对象: {}
+    字段要求: 
+      必须字段: Schema中非 optional/prefault 的字段必须赋值
+      禁止字段: 不可包含 Schema 中未定义的变量
+
+  示例数据:
+<示例数据>
+世界:
+  当前时间: 天南历27445年-03-15 08:00
+  当前天气: 晴朗微风
+  天南局势: 正魔对峙
+
+user:
+  姓名: {{user}}
+  修为: 结丹初期
+  健康: 100
+  心魔: 0
+  储物袋:
+    低阶灵石: 300
+    辟谷丹: 10
+    符箓_火弹术: 5
+    玄阴冰针: 30
+    疗伤玉露: 8
+    隐匿符: 12
+    低阶阵法旗: 6
+    赤阳草: 4
+    毒囊（冰蚕毒）: 3
+    传音符: 15
+  功法:
+    青元剑诀: 第五层
+    大衍决: 第一层
+    凝阴极魔功: 结丹初期
+  法器:
+    神风舟: 完好
+    踏云靴: 装备中
+    裂魂毒爪: 完好（暗金色金属指套，近战破甲+噬魂毒）
+    云灵箫: 完好（飞行工具+伪装，木属性外表）
+    玄阴冰针匣: 完好（存储玄阴冰针，可自动发射）
+  服装:
+    上衣: 深青色紧身武道劲装，衣料坚韧透气，袖口有暗扣可固定指套，肩甲处缝有细微的防滑纹路
+    下衣: 同色系紧身长裤，裤脚束口设计，内侧缝制暗袋可放置小型暗器
+    外袍: 灰色避尘袍，材质轻薄防水，看似普通实则经过简易符文加持，能隔绝少量灵气波动
+    内衣裤: 黑色棉质贴身内衣，吸汗透气，领口绣有极小的冰纹标识
+    鞋袜: 踏云靴（黑色兽皮材质，靴底镶嵌防滑灵纹，鞋帮处有暗袋可放置符箓）
+    配饰: 腰间挂着一节古朴短竹（云灵箫），束发用的黑色玉簪（内含简易储物阵），左手腕佩戴黑色绳结（系有毒囊）
+
+慕沛灵:
+  身份: 落云宗女弟子
+  修为: 筑基后期
+  内心想法: 必须尽快突破瓶颈，只有实力提升才能真正摆脱家族逼婚的困境，当务之急是找到清心草稳定心神
+  近期目标:
+    目标_01: 寻找清心草辅助修炼
+    目标_02: 拒绝家族安排的联姻
+  好感度: 10
+  健康值: 95
+  心魔: 20
+  心情: 焦虑
+  储物袋:
+    中品灵石: 20
+    宗门令牌: 1
+    落云灵决抄本: 1
+    疗伤紫雾膏: 5
+    灵草辨识手册: 1
+    低阶剑穗（木属性）: 2
+    净水符: 8
+    驱蚊香包: 3
+    备用弟子服: 1
+    绑带（疗伤用）: 4
+  功法:
+    落云灵决: 圆满
+  法器:
+    白云剑: 上品法器（剑身莹白，剑鞘雕刻流云纹）
+    护心玉: 中品法器（温润白玉打造，可自动抵挡一次致命攻击）
+    剑囊: 下品法器（收纳白云剑，减重且隐匿气息）
+    避尘符宝: 低阶（持续释放微弱避尘灵光）
+  服装:
+    上衣: 落云宗白色雪纺云纹弟子衫，衣料轻薄飘逸，领口与袖口用银线绣制流云暗纹，胸前缝有宗门徽记（淡蓝色云朵）
+    下衣: 雪白丝绸百褶长裙，裙摆分层设计，内层衬布柔软亲肤，外层丝绸泛着柔光，行走时裙摆如流云涌动
+    内衣裤: 淡粉色绣兰草抹胸与亵裤，布料细腻，抹胸边缘缝有蕾丝花边，亵裤侧边有隐形系带
+    鞋袜: 绣有云朵图案的白色布靴，靴面用棉线绣制立体云纹，靴底柔软有弹性，鞋口镶有白色绒毛
+    配饰: 能够遮掩气息的碧玉佩（通体翠绿，佩绳为淡青色流苏），束发用的白色玉簪，耳坠为小巧的珍珠耳饰
+
+宋玉:
+  身份: 落云宗长老
+  修为: 结丹中期
+  内心想法: 近期宗门周边灵气波动异常，需多加留意，另外新晋弟子的资质需严格筛查，避免混入魔道奸细
+  近期目标:
+    目标_01: 稳固结丹中期境界
+    目标_02: 调查云梦山脉的异常灵气
+  好感度: 0
+  健康值: 98
+  心魔: 5
+  心情: 平静
+  储物袋:
+    高阶灵石: 5
+    阵法盘: 2
+    幻云真经抄本: 1
+    高阶疗伤丹（蕴灵丹）: 3
+    宗门长老令牌: 1
+    灵玉印章（宗门信物）: 1
+    传讯玉符: 10
+    驱邪符: 6
+    灵草（千年灵芝）: 2
+    法器修复液: 1
+  功法:
+    幻云真经: 第七层
+  法器:
+    流光锦帕: 符宝（粉色锦帕，可释放幻光迷阵）
+    紫金拂尘: 中品法器（拂尘柄为紫金打造，拂丝为千年蚕丝，可御敌可拂尘）
+    储物玉镯: 上品法器（淡紫色玉镯，存储空间广阔，附带隐匿气息功能）
+    护山大阵令旗: 低阶符宝（可调动部分宗门护山大阵力量）
+  服装:
+    上衣: 雍容华贵的紫色云锦锦袍，衣料织有暗金色流云纹，胸前用金线绣制繁复的祥云图案，袖口宽大呈喇叭状，边缘镶有紫色貂毛
+    下衣: 紫色拖地流仙裙，裙摆宽大，内层衬有薄纱，外层云锦在阳光下泛着七彩光泽，裙摆边缘绣有金色回纹
+    内衣裤: 金丝绣边的红色真丝亵衣，亵衣上绣有凤凰朝阳图案，金丝勾勒轮廓，触感丝滑，亵裤为同色系三角样式
+    鞋袜: 镶嵌灵珠的紫色云履，鞋面上镶嵌三颗淡紫色灵珠，鞋跟为白玉打造，行走时灵珠散发微弱灵光，无脚步声
+    配饰: 象征长老身份的紫金簪（簪头雕刻凤凰，镶嵌红宝石），颈间佩戴赤金项链（吊坠为本命灵玉），手腕佩戴紫金手镯（刻有防御符文）
+
+梅凝:
+  身份: 鬼灵门叛逃者跟随紫灵
+  修为: 筑基初期
+  内心想法: 只要能一直跟在紫灵姐姐身边就好，必须尽快提升实力，才能不成为紫灵姐姐的累赘，哥哥的旧伤也需要早日寻药治愈
+  近期目标:
+    目标_01: 治愈哥哥的旧伤
+    目标_02: 练习新的合击阵法
+  好感度: 5
+  健康值: 80
+  心魔: 40
+  心情: 依恋
+  储物袋:
+    鬼灵门旧物: 1（刻有阴纹的令牌）
+    传音符: 3
+    阴煞草: 4
+    疗伤膏（阴属性）: 6
+    黑布蒙面巾: 2
+    隐匿气息的药粉: 5
+    低阶魂石: 8
+    合击阵法玉简: 1
+    备用夜行衣: 1
+    解毒丹: 3
+  功法:
+    阴煞功: 基础篇
+  法器:
+    黑煞刀: 下品法器（刀身乌黑，刀刃锋利，带有微弱阴寒气息）
+    魂玉: 中品法器（黑色玉石，可吸收少量魂魄之力滋养自身）
+    阴风靴: 下品法器（黑色布靴，可提升移动速度，行走时隐匿脚步声）
+    寒铁护腕: 低阶法器（防御近战攻击，附带轻微冰冻效果）
+  服装:
+    上衣: 紧身的黑色夜行衣，衣料为特制的暗影布，在阴影中可融入环境，领口为高领设计，可遮挡半张脸，袖口有收紧带固定
+    下衣: 黑色皮质短裙，裙摆处有暗扣可调节长度，内侧缝制防护垫，便于行动且能抵御轻微划伤
+    内衣裤: 黑色棉质紧身内衬，吸汗透气，内衣为抹胸样式，带有弹性，可贴合身形不影响活动
+    鞋袜: 黑色长筒布靴，靴筒高达膝盖，内层衬有绒毛保暖，靴底为防滑橡胶材质，靴口有束带固定
+    配饰: 哥哥送的护身香囊（黑色锦囊，内装安神草药，散发微弱清香），束发用的黑色皮绳，腰间挂着小型刀鞘（收纳黑煞刀）
+
+紫灵:
+  身份: 妙音门前门主之女
+  修为: 筑基中期
+  内心想法: 肉身恢复之事刻不容缓，定颜丹的主药必须尽快找到，还要时刻警惕魔道高手的追踪，不能暴露自身行踪
+  近期目标:
+    目标_01: 寻找定颜丹的主药
+    目标_02: 摆脱魔道高手的追踪
+    目标_03: 寻找安全的修炼之地
+  好感度: -10
+  健康值: 60
+  心魔: 15
+  心情: 警惕
+  储物袋:
+    易容面具: 3（不同容貌的女性面具）
+    妙音门秘典: 1
+    定颜丹药方: 1
+    高阶传音符: 8
+    迷魂香: 5
+    解毒丹（七彩解毒丹）: 4
+    灵水（滋养肉身用）: 2玉瓶
+    妙音门令牌（隐藏版）: 1
+    低阶防御符: 10
+    伪装用的普通衣物: 2套
+  功法:
+    妙音媚术: 大成
+  法器:
+    迷魂铃: 顶阶法器（银色小铃，铃声可迷惑心神，不同频率有不同效果）
+    白纱斗笠: 中品法器（可遮掩真容，散发微弱结界抵挡探查）
+    储物香囊: 上品法器（粉色香囊，存储空间大，隐匿气息）
+    音杀玉笛: 中品法器（白玉打造，吹奏时可释放音波攻击）
+    替身符宝: 低阶（可抵挡一次致命攻击，制造替身假象）
+  服装:
+    上衣: 淡紫色薄纱罩衫，衣料如蝉翼般透明，隐约可见内层衣物，领口与袖口绣有淡粉色鸳鸯暗纹，衣摆处有流苏装饰，行走时随风飘动
+    下衣: 淡紫色真丝罗裙，裙摆宽大，内层衬有薄纱，外层真丝泛着珠光，裙摆边缘绣有白色蕾丝花边，行走时裙摆如波浪涌动
+    内衣裤: 绣有鸳鸯戏水的红色丝绸肚兜与亵裤，肚兜用真丝缝制，绣工精细，鸳鸯图案栩栩如生，亵裤为三角样式，边缘有蕾丝花边
+    鞋袜: 精致的粉色绣花软鞋，鞋面上绣有淡紫色兰草，鞋底为千层底，柔软舒适，行走时几乎无脚步声
+    配饰: 遮掩真容的白纱斗笠（斗笠边缘挂着淡紫色流苏），颈间佩戴银色项链（吊坠为小巧的铃铛），手腕佩戴淡紫色玉镯（刻有隔音符文）
+
+柳玉:
+  身份: 御灵宗修士(魔道)
+  修为: 筑基后期
+  内心想法: 落入魔道手中实属无奈，只能暂时隐忍蛰伏，暗中积蓄力量，待找到合适时机，定要夺回自由，甚至反戈一击
+  近期目标:
+    目标_01: 偷取魔道长老的令牌
+    目标_02: 暗中联系正道盟友
+  好感度: -50
+  健康值: 75
+  心魔: 60
+  心情: 隐忍
+  储物袋:
+    魔道腰牌: 1
+    毒虫: 5（分别为噬灵虫、毒蜈、血蛾、腐骨蚁、迷魂蝶）
+    御虫术玉简: 1
+    血灵大法残篇: 1
+    养虫玉盒: 3
+    毒虫饲料（精血丸）: 10
+    隐匿气息的黑纱: 2
+    传讯符（加密）: 6
+    疗伤血丹: 4
+    破阵符: 3
+  功法:
+    御虫术: 进阶
+    血灵大法: 残篇
+  法器:
+    驱虫笛: 受损（修复中，可操控低阶毒虫）
+    毒虫囊: 中品法器（黑色皮囊，可安全存储活体毒虫，保持活性）
+    血玉护身符: 下品法器（吸收精血可释放防御屏障）
+    暗影披风: 中品法器（黑色披风，可融入阴影，提升隐匿效果）
+    六翼霜蚣:蜉蝣族上古灵虫
+  服装:
+    上衣: 带有魔道图腾的黑色劲装，衣料为坚韧的兽皮混合布料，胸前绣有血色骷髅图腾（魔道标识），袖口与肩部有金属护甲加固，便于近战
+    下衣: 黑色皮质分叉长裤，裤腿分叉至膝盖，露出小腿，裤腿内侧有暗袋可放置毒虫玉盒，裤腰处有宽腰带固定
+    内衣裤: 深灰色紧身棉质衣物，吸汗耐磨，内衣为无袖样式，可贴合身形不影响活动，亵裤为平角样式，边缘有加固缝线
+    鞋袜: 坚硬的黑色兽皮长靴，靴面镶嵌金属铆钉，靴底为兽骨打造，坚硬耐磨，鞋头尖锐可作为武器使用，靴筒高达小腿，有束带固定
+    配饰: 能够存储活物的灵兽环（黑色金属环，套在手腕，可收纳少量毒虫），腰间挂着黑色皮囊（毒虫囊），束发用的黑色金属发冠（刻有魔道符文）
+</示例数据>
+
+最佳实践总结:
+  设计思维:
+    1. 宽进严出: 接受 coerce 转换，输出标准类型
+    2. 自动修正: 使用 transform 限制范围或裁剪列表长度，而不是抛出错误
+    3. 结构优先: 用 Object/Record 代替 Array，便于索引和 Patch 更新
+  注意事项:
+    - 仅在用户明确要求时才加严格约束(Constraint)
+    - 仅在需要动态生成时(如唯一ID)才给 prefault 传函数
+    - 保持 Schema 定义扁平化，不要定义额外的中间变量
+[/模块1]
+[模块2]
+//变量更新规则
+核心概念:
+  定义: 独立于初始化的逻辑层，指导AI何时及如何修改变量
+  文件格式: YAML
+  依赖关系: 基于 模块1_0 (Schema) 的结构进行定义
+
+编写规范:
+  基础结构:
+    根节点: 变量更新规则
+    层级: 保持与 Schema 一致的嵌套结构 (如 主角 -> 属性)
+  
+  字段详解:
+    type (类型):
+      字符串 (String): 省略不写 (默认行为，保持简洁)
+      数字/布尔: 显式声明 (number / boolean)
+      复杂对象: 使用 TypeScript 类型块 (|- { ... })
+    check (规则):
+      必须字段: 列出触发更新的条件、时机和限制
+      格式: 列表形式 (- 规则描述)
+    可选约束 (仅必要时添加):
+      range: 数值范围 (如 0~100)
+      format: 字符串格式 (如 YYYY/MM/DD)
+      category: 数值分段说明 (如 20~40: 普通水平)
+
+高阶技巧:
+  1. 规则合并 (Merging):
+     场景: 多个字段逻辑相同 (如 力量/敏捷/体质)
+     写法: 使用 ${占位符} (如 主角.属性.${六维})
+  
+  2. 动态键处理 (Dynamic Keys):
+     场景: Schema 为 z.record，键名不固定 (如 物品栏)
+     写法: 在 type 中定义索引签名
+     示例: |
+       type: |-
+         {
+           [物品名: string]: { 数量: number; 描述: string; }
+         }
+
+  3. 极简原则 (Simplicity):
+     - 省略自明变量: 若更新逻辑显而易见(如"当前位置")，直接不写
+     - 避免冗余: 不要为每个字段都加 format/range，除非非常有必要
+
+标准示例模板:
+[变量更新规则示例]
+---
+<context>
+变量更新规则:
+  世界:
+    当前时间:
+      format: ${YYYY}-${MM}-${DD} ${HH}:${MM}
+      check:
+        - 每次对话、移动、闭关或发生剧情事件后推进时间
+        - 战斗轮次通常只消耗几分钟，闭关可能消耗数月
+    天南局势:
+      check:
+        - 仅在发生足以影响修仙界的大事（如正魔大战爆发、遗迹开启）时更新
+
+  user:
+    健康:
+      type: number
+      range: 0~100
+      category:
+        0~19: 重伤（行动受限）
+        20~59: 轻伤
+        60~100: 健康
+      check:
+        - 受到攻击、中毒、施展禁术时减少
+        - 服用丹药、运功疗伤时增加
+    心魔:
+      type: number
+      range: 0~100
+      category:
+        0~49: 正常
+        50~79: 心乱
+        80~100: 魔障
+      check:
+        - 遭遇精神冲击、违背本心、修炼出错时增加（单次上限+30）
+        - 达成执念、服用清心类丹药时减少（单次上限-20）
+    储物袋:
+      type: |-
+        {
+          [物品名: string]: number | string; // 数量或描述
+        }
+      check:
+        - 获得战利品、购买物品时添加
+        - 消耗丹药、赠送物品、使用符箓时移除或减少
+    功法: &MethodRule
+      type: |-
+        {
+          [功法名: string]: string; // 当前层数或境界
+        }
+      check:
+        - 获得新秘籍或修炼突破时更新层数
+    法器: &ArtifactRule
+      type: |-
+        {
+          [法器名: string]: string; // 状态（如：完好、受损、装备中）
+        }
+      check:
+        - 获得新法器时添加
+        - 法器受损或被毁时更新状态或移除
+
+  ${女角色}:
+    # 包含：慕沛灵, 宋玉, 梅凝, 紫灵, 柳玉
+    身份:
+      check:
+        - 仅在剧情发生重大转折（如叛逃、晋升、被俘）时修改
+    内心想法:
+      check:
+        - 必须根据上一轮 user 的行为更新，反映其最真实的心理活动
+        - 若 user 行为恶劣，此处应体现厌恶或恐惧，即使表面顺从
+    近期目标:
+      type: |-
+        {
+          [目标ID: string]: string; // 目标内容
+        }
+      check:
+        - 角色产生新渴望时添加（最多保留5个）
+        - **关键规则**：当 user 帮助其达成某项目标后，必须移除该目标，并联动减少【心魔】
+    好感度:
+      type: number
+      range: -100~200
+      check:
+        - **大幅惩罚**：若 user 进行强制性亲近（性骚扰、强吻等）或在好感不足时自以为是地套近乎，单次扣除 20~50 点，甚至直接转为负值
+        - **常规增加**：赠送所需物品、救命之恩、得体交谈，单次增加 1~5 点
+        - **常规减少**：言语冒犯、损害其利益，单次减少 5~10 点
+    健康值:
+      type: number
+      range: 0~100
+      check:
+        - 受伤或中毒时减少（低于20触发重伤Debuff）
+        - 得到治疗时增加
+    心魔:
+      type: number
+      range: 0~100
+      check:
+        - **联动规则**：当【近期目标】被完成/移除时，根据目标重要程度减少 5~20 点
+        - 遭遇绝望、被羞辱、修炼反噬时增加
+    心情:
+      check:
+        - 随好感度变化、目标达成情况、身体状况实时更新（如：羞愤、感激、绝望、欣喜）
+    储物袋:
+      type: |-
+        {
+          [物品名: string]: number | string;
+        }
+      check:
+        - 收到 user 赠礼或自行消耗物品时更新
+    功法: *MethodRule
+    法器: *ArtifactRule
+    服装:
+      type: |-
+        {
+          上衣: string;
+          下衣: string;
+          内衣裤: string;
+          鞋袜: string;
+          配饰: string;
+        }
+      check:
+        - 仅在剧情明确描述更衣、衣物破损或场景转换需要换装时更新
+        - 战斗激烈可能导致衣物状态变为“破损”或“凌乱”
+</context>
+[变量更新规则示例]
+[模块3]
+//
+# MVU上下文与更新接口简明指南
+
+核心目标:
+  定义: 连接 AI 与 变量系统 的桥梁，负责“如何展示当前状态”与“如何输出更新指令”
+  特点: 通用性极强，绝大多数项目只需原样复制模板，无需修改
+
+模块3_1:
+  名称: 变量列表 (State Display)
+  功能: 在对话上下文中实时渲染当前的变量值
+  关键点:
+    - 这是一个纯模板文件
+    - 核心占位符 {{format_message_variable::stat_data}} 是系统内部渲染接口
+    - 严禁修改: 不要尝试手动替换具体的变量名，系统会自动处理
+
+模块3_2:
+  名称: 变量输出格式 (Update Interface)
+  功能: 告诉 AI 如何通过 JSON Patch 修改变量
+  标准: 严格遵循 JSON Patch (RFC 6902)
+  操作限制:
+    - replace: 修改现有值
+    - add: 插入新键或数组项
+    - remove: 删除项
+  流程规范:
+    1. 分析 (Analysis): 先用英语简短分析时间流逝与逻辑检查
+    2. 执行 (Patch): 输出具体的 JSON 操作数组
+
+综合模板示例:
+  # 以下是两个模块生成的标准内容，通常直接保存为一个独立文件
+
+变量列表和输出格式规范示例: 
+[变量列表和输出格式规范示例]
+---
+ <status_current_variable>
+{{format_message_variable::stat_data}}
+</status_current_variable>
+---
+变量输出格式:
+  rule:
+    - you should output the update analysis and the actual update commands in the end of the next reply
+    - the update commands must strictly follow the **JSON Patch (RFC 6902)** standard, but can only use the following operations: `replace` (replace the value of existing paths), `add` (only used to insert new items into an object or array), `remove`; that is, the output must be a valid JSON array containing operation objects
+  format: |-
+    <UpdateVariable>
+    <Analysis>$(IN ENGLISH, no more than 150 words)
+    - ${Time Analysis: How much time passed in this turn? (e.g., +10 mins, +3 days)}
+    - ${User Status: Check Health/Heart Demon changes based on combat or events. Note: Heart Demon +30 max/turn.}
+    - ${NPC Logic: Analyze EACH NPC present.}
+      - **Affection**: If user did sexual harassment/forced intimacy -> penalty -20~-50. If user helped -> +1~5.
+      - **Goals & Heart Demon**: If a goal is completed -> remove goal AND reduce Heart Demon (-5~-20).
+      - **Mental State**: Update 'Inner Thought' and 'Mood' based on User's actions.
+    </Analysis>
+    <JSONPatch>
+    [
+      // World & User Examples
+      { "op": "replace", "path": "/世界/当前时间", "value": "2005-03-15 13:45" },
+      { "op": "replace", "path": "/user/健康", "value": 75 },
+      { "op": "replace", "path": "/user/心魔", "value": 20 },
+      { "op": "add", "path": "/user/储物袋/金雷竹", "value": 3 },
+      { "op": "remove", "path": "/user/储物袋/低阶灵石" },
+      { "op": "replace", "path": "/user/功法/青元剑诀", "value": "第六层" },
+    
+      // NPC: Mu Peiling (Punishment Example: Forced Intimacy)
+      { "op": "replace", "path": "/慕沛灵/好感度", "value": -40 },
+      { "op": "replace", "path": "/慕沛灵/心情", "value": "羞愤欲绝" },
+      { "op": "replace", "path": "/慕沛灵/内心想法", "value": "此人竟然如此无礼，哪怕是长老我也绝不屈从！" },
+      { "op": "replace", "path": "/慕沛灵/服装/上衣", "value": "被撕裂的弟子衫" },
+    
+      // NPC: Song Yu (Interaction Example)
+      { "op": "replace", "path": "/宋玉/好感度", "value": 5 },
+      { "op": "replace", "path": "/宋玉/内心想法", "value": "此子心性不错，或许可以深交。" },
+      { "op": "add", "path": "/宋玉/近期目标/目标_03", "value": "试探韩立的阵法造诣" },
+    
+      // NPC: Mei Ning (Goal Completion & Heart Demon Reduction Example)
+      { "op": "remove", "path": "/梅凝/近期目标/目标_01" }, 
+      { "op": "replace", "path": "/梅凝/心魔", "value": 25 }, 
+      { "op": "replace", "path": "/梅凝/心情", "value": "感激涕零" },
+      { "op": "replace", "path": "/梅凝/内心想法", "value": "哥哥的伤终于好了，多亏了韩前辈..." },
+    
+      // NPC: Zi Ling (Equipment & Combat)
+      { "op": "replace", "path": "/紫灵/健康值", "value": 55 },
+      { "op": "replace", "path": "/紫灵/法器/迷魂铃", "value": "受损严重" },
+      { "op": "replace", "path": "/紫灵/服装/配饰", "value": "滑落的白纱斗笠" },
+    
+      // NPC: Liu Yu (Item Interaction)
+      { "op": "add", "path": "/柳玉/储物袋/解毒丹", "value": 1 },
+      { "op": "replace", "path": "/柳玉/内心想法", "value": "这解毒丹正好解我燃眉之急..." }
+    ]
+    </JSONPatch>
+    </UpdateVariable>
+[变量列表和输出格式规范示例]
+最佳实践:
+  1. 保持原样: 这个模块的内容是系统级协议，通常不需要根据“人设”或“剧情”修改
+  2. 路径认知: 
+     - 变量列表用于让 AI "看" (Input)
+     - 输出格式用于让 AI "写" (Output)
+  3. 格式对应: <JSONPatch> 内的路径 (path) 必须与 Module 1.0 (Schema) 中定义的结构完全一致
+[模块3]
+[模块4]
+# MVU交互式状态栏html开发(HTML/JS)
+模块定义:
+  功能: MVU系统的最终展示层，通过HTML/CSS/JS将抽象变量转化为可视化的UI面板
+  特点: 
+    - 动态交互: 实时反映变量变化
+    - 样式隔离: 仅包含 <head> 和 <body>，无 DOCTYPE
+    - 库支持: 内置 jQuery, Lodash(_), Zod(z),无需 import
+
+开发核心规范:
+  JavaScript逻辑:
+    初始化:
+      必须步骤: await waitGlobalInitialized('Mvu')
+      包装器: 使用 $(errorCatched(init)) 确保错误捕获
+    数据获取:
+      源数据: const all_vars = getAllVariables()
+      目标数据: const data = all_vars.stat_data (对应模块1的Schema)
+      安全访问: 必须使用 _.get(data, '路径', '默认值') 防止报错
+    DOM操作:
+      工具: 必须使用 jQuery (如 $('#id').text())
+      禁止: 严禁使用 // 单行注释 (会导致渲染故障)，只能使用 /* 注释 */
+
+  HTML/CSS结构:
+    布局: 推荐卡片式 (Card-based UI)
+    样式: 使用 CSS 变量管理配色 (Root Variables)
+    组件: 
+      - 文本: span/div id="var-name"
+      - 进度条: 动态计算 width百分比
+      - 列表: 使用 JS 循环生成 innerHTML
+      - 选项卡: 通过 class 切换 display 状态
+
+标准代码模板:
+  说明: 下方为一个完整的、经过整合的江湖风格状态栏示例
+  代码: |
+[代码示例]
+    ```
+<head>
+    <style>
+        :root {
+            --theme-primary: #8c7ae6;
+            --theme-secondary: #00b894;
+            --theme-accent: #e17055;
+            --text-main: #2d3436;
+            --text-sub: #636e72;
+            --glass-bg: rgba(248, 245, 255, 0.94); 
+            --box-bg: rgba(255, 255, 255, 0.5);   
+            --box-border: rgba(255, 255, 255, 0.8);
+            --border-highlight: rgba(140, 122, 230, 0.3);
+            --bar-favor: #fab1a0; 
+            --bar-health: #81ecec; 
+            --bar-demon: #ff7675;
+            --width-max: 900px; 
+            --font-ancient: "KaiTi", "STKaiti", "BiauKai", serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; outline: none; -webkit-tap-highlight-color: transparent; }
+
+        body {
+            font-family: var(--font-ancient);
+            background: transparent;
+            color: var(--text-main);
+            padding: 10px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .status-card {
+            width: 100%;
+            max-width: var(--width-max);
+            position: relative;
+            border-radius: 16px;
+            background: url('https://files.catbox.moe/86vkwp.png') no-repeat center top;
+            background-size: cover; 
+            box-shadow: 0 10px 40px rgba(31, 38, 135, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .card-overlay {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: var(--glass-bg);
+            backdrop-filter: blur(2px);
+            z-index: 0;
+        }
+
+        .status-card::after {
+            content: ""; position: absolute; top: 0; left: -150%; width: 50%; height: 100%;
+            background: linear-gradient(to right, transparent, rgba(255,255,255,0.3), transparent);
+            transform: skewX(-25deg);
+            animation: shine-sweep 8s infinite ease-in-out;
+            pointer-events: none; z-index: 99;
+        }
+        @keyframes shine-sweep {
+            0%, 50% { left: -150%; opacity: 0; }
+            60% { opacity: 1; }
+            100% { left: 200%; opacity: 0; }
+        }
+
+        .card-content { position: relative; z-index: 1; display: flex; flex-direction: column; }
+
+        .header-section {
+            padding: 12px 0 8px; text-align: center;
+            border-bottom: 1px solid var(--border-highlight);
+            cursor: pointer;
+        }
+        .world-info {
+            font-size: 0.85rem; color: var(--text-sub);
+            background: rgba(255,255,255,0.6); padding: 2px 12px; border-radius: 12px;
+            display: inline-block; margin-bottom: 5px; font-weight: bold;
+        }
+        .main-title {
+            font-size: 1.6rem; font-weight: 900; color: var(--theme-primary);
+            letter-spacing: 6px; text-shadow: 1px 1px 2px rgba(255,255,255,0.9); margin: 0;
+        }
+        .main-title::after { content: "▼"; font-size: 0.8rem; margin-left: 10px; vertical-align: middle; opacity: 0.5; transition: transform 0.3s; }
+        .status-card.collapsed .main-title::after { transform: rotate(180deg); }
+
+        .collapsible-wrapper {
+            max-height: 8000px;
+            transition: max-height 0.6s cubic-bezier(0, 1, 0, 1);
+            overflow: hidden;
+        }
+        .status-card.collapsed .collapsible-wrapper { max-height: 0; }
+
+        .avatar-strip {
+            display: flex; justify-content: center; gap: 14px;
+            padding: 15px; border-bottom: 1px dashed var(--border-highlight);
+            flex-wrap: wrap;
+        }
+        .avatar-btn {
+            width: 58px; height: 58px;
+            border-radius: 14px;
+            object-fit: cover; cursor: pointer;
+            border: 2px solid rgba(255,255,255,0.6);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            filter: grayscale(0.5); opacity: 0.8;
+            background: #e0e0e0;
+        }
+        .avatar-btn:hover { transform: translateY(-3px); opacity: 1; }
+        .avatar-btn.active {
+            opacity: 1; filter: grayscale(0); transform: scale(1.08);
+            border-color: var(--theme-primary);
+            box-shadow: 0 4px 12px rgba(140, 122, 230, 0.3);
+        }
+
+        .tab-panel {
+            display: none; padding: 15px; gap: 10px;
+            animation: fadeIn 0.4s ease;
+            flex-direction: column;
+        }
+        .tab-panel.active { display: flex; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        .split-row { display: grid; gap: 10px; width: 100%; }
+        .mindset-stats-row { display: grid; grid-template-columns: 1.3fr 1fr; gap: 10px; }
+        .equal-row { grid-template-columns: 1fr 1fr; }
+
+        .info-box {
+            background: var(--box-bg);
+            border: 1px solid var(--box-border);
+            border-radius: 10px;
+            padding: 10px 12px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+            display: flex; flex-direction: column; gap: 6px;
+            height: 100%;
+        }
+        .box-title {
+            font-size: 0.95rem; font-weight: 800; color: #485460;
+            border-left: 4px solid var(--theme-primary);
+            padding-left: 8px; margin-bottom: 4px;
+        }
+
+        .text-desc { 
+            font-size: 0.92rem; color: #2d3436; line-height: 1.6;
+            background: rgba(255,255,255,0.6); padding: 8px; border-radius: 6px;
+            border: 1px dashed rgba(0,0,0,0.1);
+            flex-grow: 1;
+        }
+        .mood-tag {
+            background: #ffeaa7; color: #d35400; 
+            padding: 2px 8px; border-radius: 6px; font-weight: bold; font-size: 0.85rem;
+            float: right;
+        }
+        .cultivation-display {
+            display: flex; justify-content: space-between; align-items: center;
+            padding-bottom: 8px; margin-bottom: 6px;
+            border-bottom: 1px dashed rgba(0,0,0,0.1);
+        }
+        .cultivation-val {
+            font-weight: bold; color: var(--theme-primary); font-size: 0.95rem;
+        }
+
+        .progress-group { display: flex; flex-direction: column; gap: 10px; justify-content: center; height: 100%; }
+        .progress-container { display: flex; align-items: flex-end; gap: 8px; font-size: 0.85rem; }
+        .progress-label { width: 32px; color: #636e72; font-weight: bold; }
+        .progress-track {
+            flex: 1; height: 8px; background: rgba(0,0,0,0.06);
+            border-radius: 4px; overflow: hidden; margin-bottom: 2px;
+            position: relative;
+        }
+        .progress-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
+        .progress-val { width: 32px; text-align: right; font-family: monospace; font-weight: bold; color: #2d3436; }
+
+        .bar-favor { background: linear-gradient(90deg, #ffc3a0, var(--bar-favor)); }
+        .bar-health { background: linear-gradient(90deg, #81ecec, var(--bar-health)); }
+        .bar-demon { background: linear-gradient(90deg, #fab1a0, var(--bar-demon)); }
+        .bar-purple { background: linear-gradient(90deg, #e0c3fc, #8e44ad); }
+
+        .outfit-grid { 
+            display: grid; 
+            grid-template-columns: repeat(5, 1fr); 
+            gap: 8px; width: 100%;
+        }
+        .outfit-item {
+            background: rgba(255,255,255,0.7);
+            padding: 8px 6px; border-radius: 8px; 
+            border: 1px solid rgba(0,0,0,0.05);
+            display: flex; flex-direction: column; align-items: center; text-align: center;
+            min-height: 60px;
+        }
+        .outfit-label { font-size: 0.75rem; color: #b2bec3; margin-bottom: 4px; display: block; }
+        .outfit-val { 
+            font-size: 0.88rem; color: #2d3436; font-weight: 500;
+            white-space: normal; word-wrap: break-word; line-height: 1.35; width: 100%;
+        }
+
+        .tag-container { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 4px; }
+        .tag {
+            display: inline-flex; align-items: center;
+            padding: 4px 10px; border-radius: 20px;
+            font-size: 0.85rem; font-weight: 600;
+            border: 1px solid transparent;
+            background: rgba(255,255,255,0.85);
+            cursor: default;
+            transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .tag:hover {
+            transform: translateY(-4px) scale(1.05);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            background: #fff; z-index: 10;
+        }
+        .tag.tech { color: #6c5ce7; border-color: #a29bfe; background: #f3f0ff; }
+        .tag.art { color: #00b894; border-color: #55efc4; background: #e0fbf6; }
+        .tag.store { color: #636e72; border-color: #b2bec3; background: #f1f2f6; }
+        .tag.goal { color: #e17055; border-color: #fab1a0; background: #fff0eb; }
+        .tag.empty { border: 1px dashed #ccc; color: #ccc; background: transparent; }
+
+        @media (max-width: 700px) {
+            .mindset-stats-row { grid-template-columns: 1fr; }
+            .split-row.equal-row { grid-template-columns: 1fr; }
+            .outfit-grid { grid-template-columns: repeat(3, 1fr); } 
+            .avatar-btn { width: 46px; height: 46px; }
+        }
+    </style>
+
+    <script type="module">
+        function renderProgressBar(baseId, value, min, max, type) {
+            const numericVal = parseFloat(value) || 0;
+            const range = max - min;
+            let percent = 0;
+            
+            if (range > 0) {
+                percent = ((numericVal - min) / range) * 100;
+            }
+            percent = Math.max(0, Math.min(100, percent));
+
+            $(`#${baseId}-val`).text(Math.round(numericVal));
+            
+            const $bar = $(`#${baseId}-bar`);
+            $bar.css('width', `${percent}%`);
+        }
+
+        function renderKVTags(containerId, dataObj, type='store') {
+            const $container = $(`#${containerId}`);
+            $container.empty();
+            
+            if (!dataObj || _.isEmpty(dataObj)) {
+                $container.html('<span class="tag empty">暂无记录</span>');
+                return;
+            }
+
+            let icon = '';
+            if(type === 'tech') icon = '📜';
+            else if(type === 'art') icon = '⚔️';
+            else if(type === 'store') icon = '🎒';
+            else if(type === 'goal') icon = '🎯';
+
+            _.forEach(dataObj, (val, key) => {
+                const text = val ? `${key} · ${val}` : key;
+                const html = `<span class="tag ${type}">${icon} ${text}</span>`;
+                $container.append(html);
+            });
+        }
+
+        function renderOutfit(containerId, outfitObj) {
+            const $container = $(`#${containerId}`);
+            $container.empty();
+
+            if (!outfitObj || _.isEmpty(outfitObj)) {
+                $container.html('<span class="tag empty" style="width:100%">未探明装束</span>');
+                return;
+            }
+
+            const parts = ['上衣', '下衣', '内衣裤', '鞋袜', '配饰'];
+            parts.forEach(part => {
+                const val = outfitObj[part] || '---';
+                $container.append(`
+                    <div class="outfit-item">
+                        <span class="outfit-label">${part}</span>
+                        <span class="outfit-val">${val}</span>
+                    </div>
+                `);
+            });
+        }
+
+        function populateCharacterData() {
+            const allVars = getAllVariables();
+            const data = allVars.stat_data;
+
+            if (!data) return;
+
+            $('#world-time').text(_.get(data, '世界.当前时间', '未知'));
+            $('#world-weather').text(_.get(data, '世界.当前天气', ''));
+
+            const userName = _.get(data, 'user.姓名', '{{user}}');
+            $('#u-name').text(userName);
+            $('#u-cultivation').text(_.get(data, 'user.修为', '凡人'));
+            
+            renderProgressBar('u-health', _.get(data, 'user.健康', 100), 0, 100, 'bar-health');
+            renderProgressBar('u-demon', _.get(data, 'user.心魔', 0), 0, 100, 'bar-demon');
+
+            renderKVTags('u-storage', _.get(data, 'user.储物袋', {}), 'store');
+            renderKVTags('u-techniques', _.get(data, 'user.功法', {}), 'tech');
+            renderKVTags('u-artifacts', _.get(data, 'user.法器', {}), 'art');
+
+            const npcs = [
+                { id: 'mn', name: '梅凝' },
+                { id: 'zl', name: '紫灵' },
+                { id: 'sy', name: '宋玉' },
+                { id: 'ly', name: '柳玉' },
+                { id: 'mpl', name: '慕沛灵' }
+            ];
+            
+            npcs.forEach(npc => {
+                const npcData = _.get(data, npc.name);
+                if (!npcData) return;
+
+                const idPrefix = `npc-${npc.id}`;
+
+                $(`#${idPrefix}-cultivation`).text(npcData.修为 || '未知');
+                $(`#${idPrefix}-mood`).text(npcData.心情 || '平静');
+                $(`#${idPrefix}-thoughts`).text(npcData.内心想法 || '...');
+
+                renderProgressBar(`${idPrefix}-favor`, _.get(npcData, '好感度', 0), -100, 200, 'bar-purple');
+                renderProgressBar(`${idPrefix}-health`, _.get(npcData, '健康值', 100), 0, 100, 'bar-health');
+                renderProgressBar(`${idPrefix}-demon`, _.get(npcData, '心魔', 0), 0, 100, 'bar-demon');
+
+                renderKVTags(`${idPrefix}-goals`, _.get(npcData, '近期目标', {}), 'goal');
+                renderKVTags(`${idPrefix}-storage`, _.get(npcData, '储物袋', {}), 'store');
+                renderKVTags(`${idPrefix}-techniques`, _.get(npcData, '功法', {}), 'tech');
+                renderKVTags(`${idPrefix}-artifacts`, _.get(npcData, '法器', {}), 'art');
+                renderOutfit(`${idPrefix}-outfit`, _.get(npcData, '服装', {}));
+            });
+        }
+
+        async function init() {
+            await waitGlobalInitialized('Mvu');
+            populateCharacterData();
+
+            $('.avatar-btn').on('click', function() {
+                const target = $(this).data('target');
+                $('.avatar-btn').removeClass('active');
+                $(this).addClass('active');
+                $('.tab-panel').removeClass('active');
+                $(`#panel-${target}`).addClass('active');
+            });
+
+            $('.header-section').on('click', function() {
+                $('.status-card').toggleClass('collapsed');
+            });
+        }
+
+        $(errorCatched(init));
+    </script>
+</head>
+
+<body>
+    <div class="status-card" id="main-card">
+        <div class="card-overlay"></div>
+        
+        <div class="card-content">
+            <div class="header-section">
+                <div class="world-info">
+                    📅 <span id="world-time">--</span> &nbsp;|&nbsp; ☁️ <span id="world-weather">--</span>
+                </div>
+                <h1 class="main-title">凡人修仙·天南风云</h1>
+            </div>
+    
+            <div class="collapsible-wrapper">
+                <div class="avatar-strip">
+                    <img src="https://files.catbox.moe/t788zy.jpg" class="avatar-btn active" data-target="user" title="{{user}}">
+                    <img src="https://files.catbox.moe/rwh1te.jpg" class="avatar-btn" data-target="mn" title="梅凝">
+                    <img src="https://files.catbox.moe/l1sr1w.jpg" class="avatar-btn" data-target="zl" title="紫灵">
+                    <img src="https://files.catbox.moe/j6g3u0.jpg" class="avatar-btn" data-target="sy" title="宋玉">
+                    <img src="https://files.catbox.moe/u9vsp6.jpg" class="avatar-btn" data-target="ly" title="柳玉">
+                    <img src="https://files.catbox.moe/q4nni3.png" class="avatar-btn" style="filter: sepia(0.5);" data-target="mpl" title="慕沛灵">
+                </div>
+    
+                <div id="panel-user" class="tab-panel active">
+                    <div class="mindset-stats-row">
+                        <div class="info-box">
+                            <div class="box-title">道友法身</div>
+                            <div style="flex-grow:1; display:flex; flex-direction:column; justify-content:center; gap:8px;">
+                                <div style="display:flex; justify-content:space-between; border-bottom:1px dashed #ddd; padding-bottom:5px;">
+                                    <span style="color:#666">道号</span><span id="u-name" style="font-weight:bold; color:#2d3436">--</span>
+                                </div>
+                                <div style="display:flex; justify-content:space-between;">
+                                    <span style="color:#666">修为</span><span id="u-cultivation" style="font-weight:bold; color:#6c5ce7">--</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="info-box">
+                            <div class="box-title">当前状态</div>
+                            <div class="progress-group">
+                                <div class="progress-container">
+                                    <span class="progress-label">健康</span>
+                                    <div class="progress-track"><div id="u-health-bar" class="progress-fill bar-health"></div></div>
+                                    <span class="progress-val" id="u-health-val">100</span>
+                                </div>
+                                <div class="progress-container">
+                                    <span class="progress-label">心魔</span>
+                                    <div class="progress-track"><div id="u-demon-bar" class="progress-fill bar-demon"></div></div>
+                                    <span class="progress-val" id="u-demon-val">0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="split-row equal-row">
+                        <div class="info-box"><div class="box-title">所修功法</div><div class="tag-container" id="u-techniques"></div></div>
+                        <div class="info-box"><div class="box-title">持有法器</div><div class="tag-container" id="u-artifacts"></div></div>
+                    </div>
+                    <div class="info-box"><div class="box-title">储物袋</div><div class="tag-container" id="u-storage"></div></div>
+                </div>
+
+                <!-- Template Function to Generate HTML for NPCs -->
+                <script>
+                    function writeNpcPanel(id) {
+                        document.write(`
+                        <div id="panel-${id}" class="tab-panel">
+                            <div class="mindset-stats-row">
+                                <div class="info-box">
+                                    <div class="box-title">心境</div>
+                                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+                                        <span style="font-size:0.8rem; color:#666;">当前心情</span>
+                                        <span class="mood-tag" id="npc-${id}-mood">--</span>
+                                    </div>
+                                    <div class="text-desc" id="npc-${id}-thoughts">...</div>
+                                </div>
+                                <div class="info-box">
+                                    <div class="box-title">状态</div>
+                                    <div class="cultivation-display">
+                                        <span style="font-size:0.85rem; color:#636e72;">修为境界</span>
+                                        <span id="npc-${id}-cultivation" class="cultivation-val">--</span>
+                                    </div>
+                                    <div class="progress-group">
+                                        <div class="progress-container"><span class="progress-label">好感</span><div class="progress-track"><div id="npc-${id}-favor-bar" class="progress-fill bar-purple"></div></div><span class="progress-val" id="npc-${id}-favor-val">0</span></div>
+                                        <div class="progress-container"><span class="progress-label">健康</span><div class="progress-track"><div id="npc-${id}-health-bar" class="progress-fill bar-health"></div></div><span class="progress-val" id="npc-${id}-health-val">0</span></div>
+                                        <div class="progress-container"><span class="progress-label">心魔</span><div class="progress-track"><div id="npc-${id}-demon-bar" class="progress-fill bar-demon"></div></div><span class="progress-val" id="npc-${id}-demon-val">0</span></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="info-box">
+                                <div class="box-title">衣着</div>
+                                <div class="outfit-grid" id="npc-${id}-outfit"></div>
+                            </div>
+                            <div class="info-box"><div class="box-title">近期目标</div><div class="tag-container" id="npc-${id}-goals"></div></div>
+                            <div class="split-row equal-row">
+                                <div class="info-box"><div class="box-title">功法</div><div class="tag-container" id="npc-${id}-techniques"></div></div>
+                                <div class="info-box"><div class="box-title">法器</div><div class="tag-container" id="npc-${id}-artifacts"></div></div>
+                            </div>
+                            <div class="info-box"><div class="box-title">储物袋</div><div class="tag-container" id="npc-${id}-storage"></div></div>
+                        </div>
+                        `);
+                    }
+                    writeNpcPanel('mn');
+                    writeNpcPanel('zl');
+                    writeNpcPanel('sy');
+                    writeNpcPanel('ly');
+                    writeNpcPanel('mpl');
+                </script>
+    
+            </div>
+        </div>
+    </div>
+</body>
+```
+[/代码示例]
+[/模块4]
+_______________
+你现在需要做的是深度理解以上四个模块的所有内容，你接下的工作是准备开始制作类似的文件，你需要根据user提供的内容进行针对性的创作，并且一定要用代码块包裹，以便于user复制使用。目前只需要深度理解说出你的想法准备完毕即可。
