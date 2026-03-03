@@ -6,29 +6,33 @@
 
 无论哪种方式, 请阅读[教程文档](https://stagedog.github.io/青空莉/工具经验/实时编写前端界面或脚本/)来了解如何使用.
 
-### 仅本地使用
+# 执行克隆
+git clone https://github.com/DXY2026212/SillyTavernqingxin.git
 
-你可以点击网页右上角的绿色 `Code` 按钮-`Download ZIP` 下载本模板的压缩包来只在本地使用
+node tavern_sync.mjs pull 角色卡名称 -f  将酒馆内容拉取到本地  -f 强制拉取
 
-### 作为 Github 仓库
+node tavern_sync.mjs push 角色卡名称 -f    将本地内容推送到酒馆  -f 强制推送
 
-你可以通过以下两种方式中的一种来创建仓库:
+node tavern_sync.mjs watch 角色卡名称   -f  监听本地内容的变化并实时推送到酒馆  -f 强制推送
 
-- 点击网页右上角绿色 `Use this template` 按钮;
-- 或者点击网页右上角的 `fork` 按钮, 但需要手动去 fork 所得仓库的 `Actions` 页面启用自动工作流.
+node tavern_sync.mjs bundle 角色卡名称 -f  将本地内容打包到 '导出文件路径' 处
 
-在创建好仓库后, 你需要配置工作流的权限: 前往仓库 `Settings -> Actions -> General` 中将 `Workflow permissions` 设置为 `Read and write permissions`, 并勾选 `Allow GitHub Actions to create and approve pull requests`
+node tavern_sync.mjs update -f  检查并更新本同步脚本  -f 强制更新
 
-## 如果只在本地使用
+pnpm watch 启动监听源代码并编译  在dist文件夹下生成js文件 实时推送到酒馆
 
-这意味着:
+输入以下命令来安装代码依赖:
+pnpm install
+在安装完成后, 我们将会在项目根目录看到名为 node_modules 的文件夹,
+这个文件夹中就是我们刚刚通过 pnpm install 安装的第三方库.
+编写完毕后, 我们在终端执行 pnpm build 来打包代码
+如果该操作执行成功, 则会在 dist 文件夹中找到 pnpm build 对新项目的打包结果:
+我们不再运行 pnpm build, 而是运行 pnpm watch    watch意为监听, 也就是说
+pnpm watch 会监听项目中的文件变化, 并在变化时自动重新打包代码.
+将打包结果实时更新到酒馆
+我们的项目是XXXX（你刚才创建的src的文件夹的名称），目前里面已经有制作好的内容，我希望你参考界面模板，界面示例，将该项目改造为能够在酒馆里运行的页面。
 
-- 你将不能利用 jsdelivr 实现前端界面或脚本的自动更新;
-- 也不能享受本模板提供的自动打包、自动更新功能:
-  - 上传代码后, 自动打包 `src` 文件夹中的代码到 `dist` 文件夹中;
-  - 自动更新成最新的编写模板, 自动更新酒馆和酒馆助手的参考文件……
 
-但你本地依旧能很方便地使用这个模板.
 
 ## 如果创建为新仓库
 
